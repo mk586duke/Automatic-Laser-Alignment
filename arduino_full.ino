@@ -22,9 +22,9 @@
 
 // Stepper configuration
 #define STEPS_PER_REV 2048
-#define REV_PER_DEGREE 2   // Product page lists 0.5º per revoltion
+#define REV_PER_DEGREE 2   // Product page lists 0.5º per revolution or 2 rev/degree
 
-// Stepper pin mapping
+// Stepper pin mapping TODO: need to adjust this to fit the physical board
 Stepper stepper_m1x(STEPS_PER_REV, 8, 10, 9, 11);
 Stepper stepper_m1y(STEPS_PER_REV, 4, 6, 5, 7);
 Stepper stepper_m2x(STEPS_PER_REV, 22, 24, 23, 25);
@@ -386,13 +386,13 @@ void setup() {
   
   Serial.println("Best positions (degrees):");
   Serial.print("  Mirror 1 X: "); 
-  Serial.println((double)best_parameters[0] / (STEPS_PER_REV * REV_PER_DEGREE) * 360.0, 3);
+  Serial.println((double)best_parameters[0] / (STEPS_PER_REV * REV_PER_DEGREE), 3);
   Serial.print("  Mirror 1 Y: "); 
-  Serial.println((double)best_parameters[1] / (STEPS_PER_REV * REV_PER_DEGREE) * 360.0, 3);
+  Serial.println((double)best_parameters[1] / (STEPS_PER_REV * REV_PER_DEGREE), 3);
   Serial.print("  Mirror 2 X: "); 
-  Serial.println((double)best_parameters[2] / (STEPS_PER_REV * REV_PER_DEGREE) * 360.0, 3);
+  Serial.println((double)best_parameters[2] / (STEPS_PER_REV * REV_PER_DEGREE), 3);
   Serial.print("  Mirror 2 Y: "); 
-  Serial.println((double)best_parameters[3] / (STEPS_PER_REV * REV_PER_DEGREE) * 360.0, 3);
+  Serial.println((double)best_parameters[3] / (STEPS_PER_REV * REV_PER_DEGREE), 3);
 
   // Move to best configuration
   Serial.println("\nMoving to optimal configuration...");

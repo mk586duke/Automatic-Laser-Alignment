@@ -3,10 +3,13 @@ from panda3d.core import *
 from direct.gui.OnscreenText import OnscreenText
 from direct.task import Task
 import math
+import time
 import numpy as np
 from scipy.optimize import minimize
+from scipy.stats import norm
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
+from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C, Matern
+from direct.directtools.DirectGeometry import qSlerp
 
 
 class ScipyOptimizer:
@@ -76,6 +79,8 @@ class ScipyOptimizer:
             app: Reference to Panda3D ShowBase app for processing graphics updates
         """
         self.is_running = True
+        self.disk1 = disk1  # Store references to disk objects
+        self.disk2 = disk2
         self.initial_quat1 = disk1.getQuat()
         self.initial_quat2 = disk2.getQuat()
         self.best_orientations = (self.initial_quat1, self.initial_quat2)
@@ -87,7 +92,6 @@ class ScipyOptimizer:
         self.history = []
         self.current_iteration = 0
         self.optimization_complete = False
-        self.last_angles = None
         
         # Run scipy optimization (this will call evaluate_callback many times)
         self._run_scipy_optimization()
@@ -113,17 +117,17 @@ class ScipyOptimizer:
             if self.app is not None:
                 self.app.graphicsEngine.renderFrame()
             
-            actual_angles = getattr(self, 'last_angles', np.array(angles, dtype=float))
+
 
             # Store in history
             self.history.append({
                 'iteration': self.current_iteration,
-                'angles': actual_angles.copy(),
+                'angles': angles.copy(),
                 'intensity': intensity,
-                'alpha1': actual_angles[0],
-                'theta1': actual_angles[1],
-                'alpha2': actual_angles[2],
-                'theta2': actual_angles[3]
+                'alpha1': angles[0],
+                'theta1': angles[1],
+                'alpha2': angles[2],
+                'theta2': angles[3]
             })
             # Debug output every 25 iterations
             if self.current_iteration % 25 == 0:
@@ -134,42 +138,54 @@ class ScipyOptimizer:
             # Update best
             if intensity > self.best_intensity:
                 self.best_intensity = intensity
-                self.best_orientations = self._angles_to_quaternions(actual_angles)
-                self.best_angles = actual_angles.copy()
-            
+                self.best_orientations = self._angles_to_quaternions(angles)
+                # Store the current angles - these are relative to current initial_quat1/2
+                self.best_angles = angles.copy()
+                print(f"  → NEW BEST: intensity={intensity:.6f}, angles={np.rad2deg(angles)}")
+
             # Return negative for minimization
             return 1-intensity
         
         # Multi-restart optimization with exponentially shrinking simplexes
         for restart in range(self.n_restarts):
+            # For restarts after the first, update initial orientation to best found so far
+            # This makes the new search centered around the best position
+            if restart > 0 and self.best_intensity > -1:
+                # Get the actual current disk orientations (which are at the best position)
+                self.initial_quat1 = self.disk1.getQuat()
+                self.initial_quat2 = self.disk2.getQuat()
+                print(f"\n  Restart {restart + 1}/{self.n_restarts}: Updating baseline to current disk orientation")
+                print(f"    Previous best intensity: {self.best_intensity:.6f}")
+                # Reset best_angles since we're starting from a new baseline
+                # The best position in the new frame is at [0,0,0,0]
+                self.best_angles = np.zeros(4)
+                initial_guess = np.zeros(4)
+            elif self.best_angles is not None:
+                initial_guess = self.best_angles.copy()
+            else:
+                initial_guess = np.zeros(4)
+            
             # Calculate simplex scale for this restart
             simplex_scale = max_rad * (self.shrink_factor ** restart)
             
-            # Initial guess: start from best found so far (or zero for first restart)
-            if restart == 0:
-                initial_guess = np.zeros(4)
-            else:
-                # Start from best angles found so far
-                initial_guess = self.best_angles.copy() if self.best_angles is not None else np.zeros(4)
-            
-            self.last_angles = initial_guess.copy()
+            print(f"    Starting angles: [{', '.join(f'{x:.2f}' for x in np.rad2deg(initial_guess))}]°")
             
             # Configure initial simplex for this restart
             n = len(initial_guess)
             p1 = -1.0/(n*math.sqrt(2)) * (math.sqrt(n+1) - 1)
             p2 = 1.0/(n*math.sqrt(2)) * (math.sqrt(n+1) + n - 1)
             
-            # Create initial simplex with current scale
+            # Create initial simplex CENTERED on initial_guess
             initial_simplex = np.zeros((n + 1, n))
-            initial_simplex[0] = initial_guess + np.full(n, p1) * simplex_scale
+            initial_simplex[0] = initial_guess  # First vertex is the starting point
             for i in range(n):
                 modifier = 2 if i < 2 else 1
                 point = initial_guess + np.full(n, p1) * simplex_scale
                 point[i] = initial_guess[i] + p2 * simplex_scale * modifier
                 initial_simplex[i + 1] = point
             
-            print(f"\n  Restart {restart + 1}/{self.n_restarts}: simplex_scale = {math.degrees(simplex_scale):.4f}°")
-            print(f"    Starting from: {np.rad2deg(initial_guess)} deg")
+            print(f"    Simplex scale: {math.degrees(simplex_scale):.4f}°")
+            print(f"    Center: [{', '.join(f'{x:.2f}' for x in np.rad2deg(initial_guess))}]°")
             
             # Run optimization for this restart
             result = minimize(
@@ -187,10 +203,11 @@ class ScipyOptimizer:
             )
             
             print(f"    Restart {restart + 1} complete: best_intensity = {self.best_intensity:.4f}")
-            
             # Store the final result from last restart
             if restart == self.n_restarts - 1:
                 self.scipy_result = result
+        
+        self.evaluate_intensity(self.best_angles)
         
         print(f"\nNelderMeadOptimizer: All restarts complete!")
         print(f"  Total iterations: {len(self.history)}")
@@ -237,42 +254,28 @@ class ScipyOptimizer:
         """Check if optimization is complete"""
         return self.optimization_complete or not self.is_running
 
-
 class GaussianProcessOptimizer:
     """
-    Gaussian Process (Bayesian) Optimization for 3D laser alignment
+    Sample-Efficient Gaussian Process Optimizer for Expensive Evaluations
     
-    Uses a Gaussian Process to model the intensity function and intelligently
-    select the next points to sample based on Expected Improvement (EI).
-    
-    Strategy:
-    1. Random exploration: Sample random points to build initial GP model
-    2. Exploitation: Use GP to find points with high expected improvement
-    3. Balance exploration/exploitation through acquisition function
-    
-    Advantages:
-    - Very sample-efficient (often finds optimum in 30-100 samples)
-    - Models uncertainty, not just the mean prediction
-    - Good for expensive black-box functions
-    - Adapts to local landscape automatically
-    
-    How it works:
-    - GP models intensity as f(angles) ~ N(μ(angles), σ²(angles))
-    - High μ = high predicted intensity
-    - High σ = high uncertainty (unexplored region)
-    - EI balances both: try high μ OR high σ regions
+    DEBUGGED VERSION with better initial exploration and clearer diagnostics
     """
     
-    def __init__(self, n_initial_samples=30, n_total_samples=100, bounds_deg=15):
+    def __init__(self, n_initial_samples=15, n_total_samples=50, bounds_deg=1, 
+                 xi=0.01, initial_search_radius_deg=3.0):
         """
         Args:
-            n_initial_samples: Random samples before using GP
-            n_total_samples: Total samples to take
-            bounds_deg: Maximum rotation from initial position in degrees
+            n_initial_samples: Random exploration samples
+            n_total_samples: Total budget
+            bounds_deg: Maximum search bounds in degrees
+            xi: Exploration parameter (0.01 = exploit, 0.1 = balanced)
+            initial_search_radius_deg: Initial search radius around zero
         """
         self.n_initial_samples = n_initial_samples
         self.n_total_samples = n_total_samples
         self.bounds_deg = bounds_deg
+        self.initial_search_radius_deg = initial_search_radius_deg
+        self.xi = xi
         
         self.is_running = False
         self.best_intensity = -1
@@ -280,8 +283,9 @@ class GaussianProcessOptimizer:
         
         # GP model
         self.gp = None
-        self.X_samples = []  # List of sampled angles
-        self.y_samples = []  # List of observed intensities
+        self.X_samples = []
+        self.y_samples = []
+
         
         # Optimization state
         self.current_sample = 0
@@ -289,10 +293,11 @@ class GaussianProcessOptimizer:
         self.initial_quat2 = None
         self.evaluate_intensity = None
         self.app = None
-        
-        # For async operation
-        self.current_angles = None
         self.optimization_complete = False
+        
+        # Adaptive search radius
+        self.current_search_radius = initial_search_radius_deg
+        self.zero_intensity_count = 0
         
     def start(self, disk1, disk2, evaluate_callback, app=None):
         """Start optimization from current disk orientations"""
@@ -309,18 +314,49 @@ class GaussianProcessOptimizer:
         self.y_samples = []
         self.current_sample = 0
         self.optimization_complete = False
+        self.current_search_radius = self.initial_search_radius_deg
+        self.zero_intensity_count = 0
         
-        # Initialize GP with RBF kernel optimized for smooth, unimodal functions
-        # Longer length scale = smoother function assumption = more convex-like
-        kernel = C(1.0, (0.1, 10.0)) * RBF(length_scale=5.0, length_scale_bounds=(1e-5, 1e5))
-        self.gp = GaussianProcessRegressor(
-            kernel=kernel,
-            n_restarts_optimizer=10,  # More restarts for kernel hyperparameter optimization
-            alpha=1e-6,
-            normalize_y=True
+        # Wider bounds to avoid convergence warnings
+        # Constant kernel: allow wider range for signal variance
+        # RBF length_scale: allow very small (sharp features) to very large (smooth landscape)
+        kernel = C(1.0, (1e-3, 1e4)) * RBF(
+            length_scale=1.0/100, 
+            length_scale_bounds=(1e-4, 100.0)  # Much wider range
         )
         
-        print(f"GaussianProcessOptimizer: Starting with {self.n_initial_samples} random samples")
+        self.gp = GaussianProcessRegressor(
+            kernel=kernel,
+            n_restarts_optimizer=10,
+            alpha=1e-6,
+            normalize_y=True,
+            random_state=42
+        )
+        
+        print(f"\n{'='*60}")
+        print(f"GP OPTIMIZER STARTED")
+        print(f"{'='*60}")
+        print(f"Budget: {self.n_total_samples} samples ({self.n_initial_samples} random)")
+        print(f"Initial search: ±{self.initial_search_radius_deg}° around zero")
+        print(f"Max bounds: ±{self.bounds_deg}°")
+        print(f"Exploitation: xi={self.xi}\n")
+        
+        # Sample the starting point (0,0,0,0) first!
+        print("Sample 0: Testing starting point [0, 0, 0, 0]°")
+        zero_angles = np.zeros(4)
+        zero_intensity = self.evaluate_intensity(zero_angles)
+        print(f"  → Intensity at zero: {zero_intensity:.6f}")
+        
+        if zero_intensity > 0:
+            self.X_samples.append(zero_angles)
+            self.y_samples.append(zero_intensity)
+            self.best_intensity = zero_intensity
+            self.best_orientations = self._angles_to_quaternions(zero_angles)
+            self.current_sample += 1
+            print(f"  ✓ Good signal at starting point!")
+        else:
+            print(f"  ⚠ Zero intensity at starting point - will expand search")
+            self.zero_intensity_count += 1
         
     def stop(self):
         """Stop optimization"""
@@ -332,131 +368,183 @@ class GaussianProcessOptimizer:
             return None
             
         if self.current_sample >= self.n_total_samples:
-            self.optimization_complete = True
-            print(f"\nGaussianProcessOptimizer: Complete!")
-            print(f"  Total samples: {len(self.X_samples)}")
-            print(f"  Best intensity: {self.best_intensity:.4f}")
-            if len(self.X_samples) > 0:
-                best_idx = np.argmax(self.y_samples)
-                best_angles = self.X_samples[best_idx]
-                print(f"  Best angles: {np.rad2deg(best_angles)} deg")
-                self.best_orientations = self._angles_to_quaternions(best_angles)
+            self._finalize_optimization()
             return None
         
-        # Decide next point to sample
-        # if self.current_sample < self.n_initial_samples:
-        #     # Random exploration phase
-        #     angles = self._sample_random_point()
-        # else:
-        #     # GP-guided exploitation phase
-        #     angles = self._sample_next_point_ei()
-        angles = self._find_best_predicted_point()
+        # Choose next sample point
+        if self.current_sample < self.n_initial_samples:
+            angles = self._sample_exploration_point()
+            strategy = f"Explore(r={self.current_search_radius:.1f}°)"
+        else:
+            if len(self.y_samples) < 3:
+                # Not enough data for GP, keep exploring
+                angles = self._sample_exploration_point()
+                strategy = "Explore(fallback)"
+            else:
+                angles = self._sample_next_point_ei()
+                strategy = "EI"
         
-        # Evaluate intensity
+        # Evaluate (EXPENSIVE!)
         intensity = self.evaluate_intensity(angles)
         
-        # Store sample (store all samples)
-        if intensity > 0:  # ignore zero intensities because they represent laser missing sensor
+        # Diagnostic output
+        angles_deg = np.rad2deg(angles)
+        print(f"Sample {self.current_sample+1:2d}: [{', '.join(f'{x:5.2f}' for x in angles_deg)}]° "
+              f"→ I={intensity:.6f}", end="")
+        
+        # Handle result
+        if intensity > 1e-9:  # Valid measurement
             self.X_samples.append(angles)
             self.y_samples.append(intensity)
             self.current_sample += 1
+            self.zero_intensity_count = 0  # Reset
+            
+            if intensity > self.best_intensity:
+                self.best_intensity = intensity
+                self.best_orientations = self._angles_to_quaternions(angles)
+                print(f" ★ NEW BEST [{strategy}]")
+            else:
+                print(f" [{strategy}]")
+                
+        else:  # Zero intensity - laser missed
+            self.zero_intensity_count += 1
+            print(f" ✗ MISS [{strategy}]")
+            
+            # Adaptive expansion
+            if self.zero_intensity_count >= 3 and self.current_sample < self.n_initial_samples:
+                old_radius = self.current_search_radius
+                self.current_search_radius = min(self.current_search_radius * 2, self.bounds_deg)
+                print(f"  → Expanding search radius: {old_radius:.1f}° → {self.current_search_radius:.1f}°")
         
-        # Update best
-        if intensity > self.best_intensity:
-            self.best_intensity = intensity
-            self.best_orientations = self._angles_to_quaternions(angles)
-        
-        # Update GP model (after we have enough samples)
-        if self.current_sample >= self.n_initial_samples and len(self.X_samples) >= self.n_initial_samples:
-            X = np.array(self.X_samples)
-            y = np.array(self.y_samples)
+        # Update GP when we have enough data
+        if len(self.y_samples) >= 5 and self.current_sample >= self.n_initial_samples:
             try:
+                X = np.array(self.X_samples)
+                y = np.array(self.y_samples)
                 self.gp.fit(X, y)
                 
-                # Debug: Check Gaussian fit quality
-                if self.current_sample % 10 == 0:
-                    # Predict on training data to check fit quality
-                    y_pred, y_std = self.gp.predict(X, return_std=True)
-                    
-                    # Calculate R² score (how well GP fits the data)
-                    residuals = y - y_pred
-                    ss_res = np.sum(residuals**2)
-                    ss_tot = np.sum((y - np.mean(y))**2)
-                    r2_score = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-                    
-                    # Log marginal likelihood (higher is better fit)
-                    log_likelihood = self.gp.log_marginal_likelihood_value_
-                    
-                    # Mean prediction uncertainty
-                    mean_std = np.mean(y_std)
-                    
-                    # Check residual normality: should be roughly N(0, σ²)
-                    mean_residual = np.mean(residuals)
-                    std_residual = np.std(residuals)
-                    
-                    print(f"  [GP Fit Quality] R²={r2_score:.4f} | LogML={log_likelihood:.2f} | "
-                          f"MeanStd={mean_std:.4f} | ResidMean={mean_residual:.4f}±{std_residual:.4f}")
-                    
+                if self.current_sample % 5 == 0:
+                    self._print_gp_status(X, y)
             except Exception as e:
-                print(f"  Warning: GP fit failed: {e}")
+                print(f"  ⚠ GP fit error: {e}")
         
         # Render frame
         if self.app is not None:
             self.app.graphicsEngine.renderFrame()
         
-        if self.current_sample % 10 == 0:
-            phase = "Explore" if self.current_sample < self.n_initial_samples else "Exploit"
-            print(f"  GP {phase} sample {self.current_sample}: intensity = {intensity:.4f}, best = {self.best_intensity:.4f}")
-        
-        
-        # Return quaternions for this sample
         return self._angles_to_quaternions(angles)
     
-    def _sample_random_point(self):
-        """Sample a random point within bounds"""
-        max_rad = math.radians(self.bounds_deg)
-        angles = np.random.uniform(-max_rad, max_rad, size=4)
+    def _sample_exploration_point(self):
+        """Sample point for exploration phase
+        
+        Uses progressively expanding radius around zero.
+        Guarantees we search near the starting point first.
+        """
+        max_rad = math.radians(self.current_search_radius)
+        
+        # Random point in 4D ball
+        # Method: sample from normal, normalize, scale by random radius
+        direction = np.random.randn(4)
+        norm = np.linalg.norm(direction)
+        if norm < 1e-9:
+            direction = np.array([1, 0, 0, 0])
+            norm = 1.0
+        direction = direction / norm
+        
+        # Uniform radius in 4D: r ~ U^(1/4)
+        r = (np.random.random() ** 0.25) * max_rad
+        
+        angles = direction * r
         return angles
     
-    def _find_best_predicted_point(self):
-        """Find the angle that maximizes the GP's predicted mean intensity
-        
-        Uses scipy.optimize.minimize to find the maximum of the GP's mean prediction.
-        Since the GP fit is excellent and assumes a smooth/convex-like function,
-        a single optimization from the best observed point should find the global maximum.
-        
-        Returns:
-            Array of angles [ax1, ay1, ax2, ay2] that maximize predicted intensity
-        """
-        if self.gp is None or len(self.X_samples) < self.n_initial_samples:
-            # Fall back to random sampling if GP not ready
-            return self._sample_random_point()
+    def _sample_next_point_ei(self):
+        """Expected Improvement acquisition"""
+        if self.gp is None or len(self.y_samples) < 3:
+            return self._sample_exploration_point()
         
         max_rad = math.radians(self.bounds_deg)
+        f_best = np.max(self.y_samples)
         
-        # Objective: minimize negative predicted mean (to maximize mean)
-        def objective(angles):
+        def negative_ei(angles):
+            """Negative EI for minimization"""
             angles_2d = angles.reshape(1, -1)
-            mu = self.gp.predict(angles_2d, return_std=False)
-            return -mu[0]  # Negative for minimization
+            mu, sigma = self.gp.predict(angles_2d, return_std=True)
+            
+            if sigma[0] < 1e-9:
+                return 0.0
+            
+            from scipy.stats import norm as scipy_norm
+            Z = (mu[0] - f_best - self.xi) / sigma[0]
+            ei = (mu[0] - f_best - self.xi) * scipy_norm.cdf(Z) + sigma[0] * scipy_norm.pdf(Z)
+            return -ei
         
-        # Start from best observed sample
-        best_idx = np.argmax(self.y_samples)
-        initial_guess = np.array(self.X_samples[best_idx])
+        # Multi-start optimization
+        best_ei = float('inf')
+        best_angles = None
         
-        # Single optimization run (no multi-restart needed with smooth GP)
-        result = minimize(
-            objective,
-            initial_guess,
-            method='L-BFGS-B',
-            bounds=[(-max_rad, max_rad)] * 4,
-            options={
-                'maxiter': 100,
-                'ftol': 1e-9
-            }
-        )
+        # Start points: best observed + random points
+        x0_best = np.array(self.X_samples[np.argmax(self.y_samples)])
+        n_restarts = 3
+        starting_points = [x0_best]
         
-        return result.x
+        # Add random starts
+        for _ in range(n_restarts):
+            starting_points.append(self._sample_exploration_point())
+        
+        for x0 in starting_points:
+            result = minimize(
+                negative_ei,
+                x0,
+                method='L-BFGS-B',
+                bounds=[(-max_rad, max_rad)] * 4,
+                options={'maxiter': 50, 'ftol': 1e-9}
+            )
+            
+            if result.fun < best_ei:
+                best_ei = result.fun
+                best_angles = result.x
+        
+        return best_angles if best_angles is not None else x0_best
+    
+    def _finalize_optimization(self):
+        """Print final results"""
+        self.optimization_complete = True
+        print(f"\n{'='*60}")
+        print(f"OPTIMIZATION COMPLETE")
+        print(f"{'='*60}")
+        print(f"Total samples: {len(self.X_samples)}")
+        print(f"Valid measurements: {len(self.y_samples)}")
+        print(f"Best intensity: {self.best_intensity:.6f}")
+        
+        if len(self.y_samples) > 0:
+            best_idx = np.argmax(self.y_samples)
+            best_angles = self.X_samples[best_idx]
+            print(f"Best angles: [{', '.join(f'{x:.2f}' for x in np.rad2deg(best_angles))}]°")
+            self.best_orientations = self._angles_to_quaternions(best_angles)
+            
+            # Show improvement
+            if len(self.y_samples) > 1:
+                initial_intensity = self.y_samples[0]
+                improvement = (self.best_intensity / initial_intensity - 1) * 100 if initial_intensity > 0 else 0
+                print(f"Improvement: {improvement:.1f}% from starting point")
+        else:
+            print("⚠ No valid measurements obtained!")
+        print(f"{'='*60}\n")
+    
+    def _print_gp_status(self, X, y):
+        """Print GP diagnostics"""
+        y_pred, y_std = self.gp.predict(X, return_std=True)
+        
+        residuals = y - y_pred
+        ss_res = np.sum(residuals**2)
+        ss_tot = np.sum((y - np.mean(y))**2)
+        r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+        
+        rmse = np.sqrt(np.mean(residuals**2))
+        
+        print(f"\n  [GP Status] R²={r2:.3f} | RMSE={rmse:.6f} | "
+              f"Length scale={self.gp.kernel_.k2.length_scale:.2f}°")
+    
     def _angles_to_quaternions(self, angles):
         """Convert angle parameters to quaternions"""
         ax1, ay1, ax2, ay2 = angles
@@ -487,7 +575,6 @@ class GaussianProcessOptimizer:
         """Check if optimization is complete"""
         return self.optimization_complete or not self.is_running
 
-
 class LaserSimulation(ShowBase):
     def __init__(self):
         ShowBase.__init__(self)
@@ -517,7 +604,7 @@ class LaserSimulation(ShowBase):
         self.setup_lights()
         
         # Initialize scene
-        wire_pos = LVector3f(-50, 0, 0)
+        wire_pos = LVector3f(-25, 0, 0)
         laser_pos = LVector3f(0, -10, 0)
         self.laser_pos = LVector3f(0, -10, 0)
         self.laser_dir = LVector3f(1, 0, 0)
@@ -525,32 +612,41 @@ class LaserSimulation(ShowBase):
         
         # Create disk mirrors
         disk1_center = LVector3f(10, -10, 0)
-        disk2_center = LVector3f(12, 1, 0)
+        disk2_center = LVector3f(11, 1/3, 0)
         
         # Mirror 1 normal: pointing toward average of laser source and mirror 2
-        disk1_normal = (laser_pos + disk2_center)/2 - disk1_center
+        incoming_distance = (disk1_center - laser_pos).length()
+        outgoing_distance = (disk2_center - disk1_center).length()
+        target = (laser_pos * outgoing_distance + disk2_center * incoming_distance) / (incoming_distance + outgoing_distance)
+        # target = (laser_pos + disk2_center) / 2
+        disk1_normal = target - disk1_center
         disk1_normal.normalize()
         
-        # Mirror 2 normal: bisector of incident ray from mirror 1 and direction to wire
-        # First get the reflected direction from mirror 1
-        to_disk2 = disk2_center - disk1_center
-        to_disk2.normalize()
-        from_disk1 = -to_disk2  # Approximate: ray coming from disk1
-        to_wire = wire_pos - disk2_center
-        to_wire.normalize()
-        disk2_normal = from_disk1 + to_wire
+        # Mirror 2 normal: Use angle bisector theorem for reflection
+        # For a mirror: normal bisects the angle between incoming and outgoing rays
+        # Incoming ray: light traveling FROM disk1 TO disk2
+        incoming_direction = disk2_center - disk1_center
+        incoming_distance = incoming_direction.length()
+        # Outgoing ray: light should travel FROM disk2 TO wire
+        outgoing_direction = wire_pos - disk2_center
+        outgoing_distance = outgoing_direction.length()
+
+        # Angle bisector theorem: normal points toward weighted average of the two endpoints
+        # Weighted by the distances (closer endpoint gets more weight)
+        other_point = (disk1_center * outgoing_distance + wire_pos * incoming_distance) / (incoming_distance + outgoing_distance)
+        disk2_normal = other_point - disk2_center
         disk2_normal.normalize()
 
         self.disk1 = self.create_disk_mirror(
             center=disk1_center,
             normal=disk1_normal,
-            radius=4.0,
+            radius=2.0,
             color=(0.8, 0.8, 1, 1)
         )
         self.disk2 = self.create_disk_mirror(
             center=disk2_center,
             normal=disk2_normal,
-            radius=4.0,
+            radius=2.0,
             color=(0.8, 0.8, 1, 1)
         )
         
@@ -565,7 +661,7 @@ class LaserSimulation(ShowBase):
         self.wire = self.create_wire_detector(
             position=wire_pos,
             direction=LVector3f(1, 0, 0),
-            radius=0.5,
+            radius=0.3,
             length=3.0
         )
         
@@ -602,15 +698,19 @@ class LaserSimulation(ShowBase):
         # Keyboard state
         self.keys = {}
         self.setup_controls()
+        
+        # Motor simulation state (non-blocking delay)
+        self.last_evaluation_time = 0
+        self.min_evaluation_interval = 0.0  # Minimum time between evaluations (seconds)
     
         # Choose optimizer:
         # Full 4D optimization (may take 200-500 evaluations):
-        self.optimizer = ScipyOptimizer(maxiter=500, bounds_deg=3, n_restarts=1, shrink_factor=0.3)
+        self.optimizer = ScipyOptimizer(maxiter=500, bounds_deg=1/5, n_restarts=3, shrink_factor=0.25)
         
         
         # Gaussian Process optimization (typically 30-100 evaluations):
         # Uses Bayesian optimization with Expected Improvement
-        # self.optimizer = GaussianProcessOptimizer(n_initial_samples=15, n_total_samples=150, bounds_deg=1/10)
+        # self.optimizer = GaussianProcessOptimizer()
         
         # Add update task
         self.taskMgr.add(self.update_task, "update")
@@ -699,7 +799,7 @@ class LaserSimulation(ShowBase):
         # Orient disk to face normal direction
         # The disk is created in XY plane with normal along +Z
         # We need to rotate it so its local +Z points along 'normal'
-        normal.normalize()
+        # normal.normalize()
         
         # Use lookAt to orient the disk - the disk's +Z should point along normal
         # lookAt makes the node's +Y axis point at the target by default
@@ -1138,17 +1238,20 @@ class LaserSimulation(ShowBase):
         if not hit_info:
             return 0.0  # Minimal intensity for miss
         
+        waist = 0.1  # Beam waist at wire entrance
+        wavelength = 0.00532  # Laser wavelength in mm
         intersection, radial_dist = hit_info
         radius = self.wire.getPythonTag('radius')
         direction = self.wire.getPythonTag('direction')
-        
-        eta_lateral = math.exp(-(radial_dist ** 2) / (radius ** 2))
+        # exp(-(r/w)^2) * exp(-1/2 * (theta * w * pi / lambda)^2)
+        eta_lateral = math.exp(-(radial_dist ** 2) / (waist ** 2))
         alignment = abs(ray_dir.dot(direction))
-        eta_angular = alignment ** 2
+        theta = math.acos(min(1.0, alignment))  # Angle between ray and wire
+        eta_angular = math.exp(-0.5 * ((theta * waist * math.pi / wavelength) ** 2))
 
-        noise = np.random.normal(-.01, 0.002)
+        noise = np.random.normal(-0.01, 0.002)
         
-        return eta_lateral * eta_angular #+ noise
+        return eta_lateral * eta_angular# + noise
     
     def evaluate_intensity_for_angles(self, angles):
         """Evaluate intensity for given mirror angles [ax1, ay1, ax2, ay2]
@@ -1180,10 +1283,68 @@ class LaserSimulation(ShowBase):
             initial_quat2 = self.disk2_initial_quat
         
         # Combine with initial orientations
+        
         quat1 = rot1_y * rot1_x * initial_quat1
         quat2 = rot2_y * rot2_x * initial_quat2
         
-        # Set disk orientations (keep them visible at this position)
+        # Calculate motor delay based on angle difference
+        current_quat1 = self.disk1.getQuat()
+        current_quat2 = self.disk2.getQuat()
+        
+        # Get angles in radians, then convert to degrees
+        angle_diff = current_quat1.angleDeg(quat1)
+        angle_diff2 = current_quat2.angleDeg(quat2)
+        angle_diff = max(angle_diff, angle_diff2)
+
+        # Motor can move 5 degrees per minute = 5/60 degrees per second
+        motor_speed = 5.0 / 60.0  # degrees per second (10x speed for simulation)
+        required_delay = angle_diff / motor_speed
+        start_time = time.time()
+        print(f"Evaluating angles: {angles}, angle_diff: {angle_diff:.3f} deg, required_delay: {required_delay:.3f} s")
+        
+        frame_time = 1.0 / 60.0  # Target 60 FPS for smooth animation
+        
+        while required_delay > 0:
+            percent_pass = (time.time() - start_time) / required_delay
+            if percent_pass >= 1.0:
+                break
+
+            intermediate_quat1 = qSlerp(current_quat1, quat1, percent_pass)
+            intermediate_quat2 = qSlerp(current_quat2, quat2, percent_pass)
+
+            self.disk1.setQuat(intermediate_quat1)
+            self.disk2.setQuat(intermediate_quat2)
+             # Update normal vectors
+            forward = LVector3f(0, 0, 1)
+            new_normal1 = self.disk1.getQuat().xform(forward)
+            new_normal1.normalize()
+            self.disk1.setPythonTag('normal', new_normal1)
+            
+            new_normal2 = self.disk2.getQuat().xform(forward)
+            new_normal2.normalize()
+            self.disk2.setPythonTag('normal', new_normal2)
+            
+            # Trace ray and calculate intensity
+            path, final_pos, final_dir = self.trace_ray_3d()
+            hit_info = self.check_wire_hit(final_pos, final_dir)
+            intensity = self.calculate_intensity(hit_info, final_dir)
+            self.draw_ray_path(path)
+            # Update intensity text during optimization
+            self.intensity_text.setText(f'Wire Coupling Intensity: {intensity:.4f}')
+            
+            # Render frame for smooth animation
+            self.graphicsEngine.renderFrame()
+            self.update_task(None)
+            
+            # Sleep to maintain consistent frame rate
+            time.sleep(frame_time)
+        # Non-blocking delay: check if enough time has passed since last evaluation
+        current_time = time.time()
+        time_since_last = current_time - self.last_evaluation_time
+        
+        self.last_evaluation_time = time.time()
+        
+        # Set disk orientations
         self.disk1.setQuat(quat1)
         self.disk2.setQuat(quat2)
         
@@ -1209,7 +1370,6 @@ class LaserSimulation(ShowBase):
         
         # Notify optimizer about the actual angles used for this evaluation
         if hasattr(self, 'optimizer') and self.optimizer:
-            self.optimizer.last_angles = angles
             if hasattr(self.optimizer, 'best_intensity') and intensity > self.optimizer.best_intensity:
                 self.optimizer.best_intensity = intensity
         
