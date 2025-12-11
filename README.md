@@ -48,9 +48,8 @@ The hardware setup for the automatic laser alignment system includes the followi
 
 
 #### New Components
-==TODO: Minseo please fill this out== 
 The hardware setup consists of the following components:
-- Four 2048-step stepper motors (28BYJ-48) to control two 2-axis mirrors TODO: include an image
+- Four 2048-step stepper motors (28BYJ-48) to control two 2-axis mirrors
 - Four motor drivers (ULN2003)
 <img src="assets/motoranddriver.jpg" width="267" height="267">
 
@@ -58,7 +57,7 @@ The hardware setup consists of the following components:
 <img src="assets/motorguidesimple.png" width="267" height="267">
 - Four motor-screw adaptors (designed, 3D print)
 <img src="assets/motoradapt.png" width="267" height="267">
-- One microcontroller board (Arduino Mega 2560) to control the stepper motors and read photodetector values TODO: include an image
+- One microcontroller board (Arduino Mega 2560) to control the stepper motors and read photodetector values
 <img src="assets/am_2560_934x700.jpg" width="267" height="267">
 
 #### Power and Networking
@@ -67,7 +66,6 @@ The hardware setup consists of the following components:
 - All power used in the new components comes from one 5V power supply from the wall. Total operating current does not exceed 2A for a 4-motor setup.
 
 <img src="assets/prjflowbkgd.png" width="400" height="400">
-
 
 ## Testing and Validation
 ### Targeting accuracy:
@@ -92,9 +90,11 @@ At a target distance of 50 cm, the theoretical beam displacement per step is:
 $\Delta x = d \times \tan(\theta_{res}) \approx 500 \text{ mm} \times 4.26 \times 10^{-6} \approx 2.13 \mu\text{m}$
 
 #### Practical Demonstration
-==TODO: Minseo please put the video results here== 
 
-[<img width="300" height="700" alt="Screenshot 2025-12-11 at 12 43 07 AM" src="https://github.com/user-attachments/assets/f4e115c4-eb58-4e5b-a3fe-ddf16b61edbf"/>](https://github.com/mk586duke/Automatic-Laser-Alignment/blob/main/assets/demovids/demo1.mp4)
+[https://github.com/user-attachments/assets/563d36e5-1c92-49e6-aa88-c873a20ddf1d](https://github.com/user-attachments/assets/9b8450f7-a777-4803-a4d8-d42c7563cfcb)
+
+[https://github.com/user-attachments/assets/a592c666-56a3-4e0d-9e66-e11b52756210](https://github.com/user-attachments/assets/a592c666-56a3-4e0d-9e66-e11b52756210)
+
 
 ### Performance goals:
 - [x]  System improves output power relative to misaligned start: We consistently observed a significant increase in detected intensity after running the alignment routine from various misaligned starting positions. The determinism of the stepper motors ensured non-decreasing performance across multiple trials & we achieved consistent improvements, comparable to human tuning.
@@ -107,6 +107,3 @@ $\Delta x = d \times \tan(\theta_{res}) \approx 500 \text{ mm} \times 4.26 \time
 The demonstration videos showcasing the fully working system can be found in the assets/videos folder or should be attached in the email along with this document.
 
 *Note that demo1.mp4 shows alignment with the laser has a high power setting
-
-
-
