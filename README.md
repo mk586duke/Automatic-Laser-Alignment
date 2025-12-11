@@ -3,7 +3,7 @@
 
 
 ## Introduction
-This project implements an automated retrofitable laser alignment system designed to optimize optical coupling efficiency for optical setups in a general physics laboratory environment, such as experiments at the Duke Quantum Center.
+This project implements an automated retrofittable laser alignment system designed to optimize optical coupling efficiency for optical setups in a general physics laboratory environment, such as experiments at the Duke Quantum Center.
 
 Traditionally, coupling laser beams into fibers is a labor-intensive and manual process that can take hours and suffer from inconsistency. Furthermore, such an alignment is not permanent, and due to factors such as human error, addition of new components, or simply mechanical drift, alignment needs to be repeated constantly for a single laser path. Considering the large number of such paths for just a single experimental setup, the combined hours of labor are significant.
 
@@ -92,11 +92,10 @@ At a target distance of 50 cm, the theoretical beam displacement per step is:
 
 $\Delta x = d \times \tan(\theta_{res}) \approx 500 \text{ mm} \times 4.26 \times 10^{-6} \approx 2.13 \mu\text{m}$
 
-#### Practical Demonstration
+#### Practical Demonstration of Targeting Accuracy
+We demonstrated the upper-bound targeting error by doing full rotations of the motor back and forth, showing sub-mm lateral error over the course of 4096 steps (1 degree of mirror motion).
 
-[https://github.com/user-attachments/assets/563d36e5-1c92-49e6-aa88-c873a20ddf1d](https://github.com/user-attachments/assets/9b8450f7-a777-4803-a4d8-d42c7563cfcb)
-
-[https://github.com/user-attachments/assets/a592c666-56a3-4e0d-9e66-e11b52756210](https://github.com/user-attachments/assets/a592c666-56a3-4e0d-9e66-e11b52756210)
+*Video demonstration available in assets/demovids/emperical_demo.mp4*
 
 
 ### Performance goals:
@@ -109,5 +108,5 @@ $\Delta x = d \times \tan(\theta_{res}) \approx 500 \text{ mm} \times 4.26 \time
 ## Demonstration Videos
 The demonstration videos showcasing the fully working system can be found in the assets/videos folder or should be attached in the email along with this document.
 
-*Note that demo1.mp4 shows alignment with the laser has a high power setting
+*Note that demo1.mp4 shows alignment where the laser has a high power setting
 
