@@ -65,7 +65,9 @@ The hardware setup consists of the following components:
 - The photodetector outputs an analog voltage proportional to the detected light intensity. This signal is transmitted to the Arduino Mega via analog input pin A0.
 - The stepper motors communicate with the Arduino Mega through its corresponding motor driver board, which interprets and converts the control signal from the Arduino Mega. It also draws power to drive the motor.
 - All power used in the new components comes from one 5V power supply from the wall. Total operating current does not exceed 2A for a 4-motor setup.
-==TODO: Add flow chart== 
+
+<img src="assets/prjflowbkgd.png" width="400" height="400">
+
 
 ## Testing and Validation
 ### Targeting accuracy:
@@ -91,6 +93,9 @@ $\Delta x = d \times \tan(\theta_{res}) \approx 500 \text{ mm} \times 4.26 \time
 
 #### Practical Demonstration
 ==TODO: Minseo please put the video results here== 
+
+[<img width="300" height="700" alt="Screenshot 2025-12-11 at 12 43 07 AM" src="https://github.com/user-attachments/assets/f4e115c4-eb58-4e5b-a3fe-ddf16b61edbf"/>](https://github.com/mk586duke/Automatic-Laser-Alignment/blob/main/assets/demovids/demo1.mp4)
+
 ### Performance goals:
 - [x]  System improves output power relative to misaligned start: We consistently observed a significant increase in detected intensity after running the alignment routine from various misaligned starting positions. The determinism of the stepper motors ensured non-decreasing performance across multiple trials & we achieved consistent improvements, comparable to human tuning.
 - [x]  Manual override available at any time: System could be reset with a single button press on the Arduino Mega. During alignment, manual adjustments to the mirror mounts were possible without damaging the motors or losing system state. Additionally, all components went through a single 5V power supply, simplifying the wiring and making deactivation straightforward.
@@ -102,5 +107,6 @@ $\Delta x = d \times \tan(\theta_{res}) \approx 500 \text{ mm} \times 4.26 \time
 The demonstration videos showcasing the fully working system can be found in the assets/videos folder or should be attached in the email along with this document.
 
 *Note that demo1.mp4 shows alignment with the laser has a high power setting
+
 
 
