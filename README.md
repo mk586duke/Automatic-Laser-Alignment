@@ -55,6 +55,9 @@ The hardware setup consists of the following components:
 <img src="assets/motoranddriver.jpg" width="267" height="267">
 
 - Two motor holding and guidance assemblies (designed, 3D print)
+<script
+src="https://embed.github.com/view/3d/mk586duke/Automatic-Laser-Alignment/main/assets/models/Part%20Studio%202%20Copy%201%20-%20Motor%20Guide%20Simple%20(1).stl">
+</script>
 
 - Four motor-screw adaptors (designed, 3D print)
 - One microcontroller board (Arduino Mega 2560) to control the stepper motors and read photodetector values TODO: include an image
@@ -100,3 +103,4 @@ $\Delta x = d \times \tan(\theta_{res}) \approx 500 \text{ mm} \times 4.26 \time
 The demonstration videos showcasing the fully working system can be found in the assets/videos folder or should be attached in the email along with this document.
 
 *Note that demo1.mp4 shows alignment with the laser has a high power setting
+
