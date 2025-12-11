@@ -28,14 +28,23 @@ The core logic resides in `arduino_full.ino`, which implements the control loop 
 
 ### Hardware Architecture
 #### Pre-Existing Hardware Setup
-==TODO: Minseo please check all of this==
-The hardware setup for the automatic laser alignment system includes the following components.
-- One laser source (Diode @760nm in TA100) TODO: include an image & asking Thomas for more details
-- Two 2-axis mirror mounts (K100) with installed mirrors  TODO: include an image
-- One collimator (CFC11A)
-- One photodetector (Thorlabs PDA100A) to measure laser intensity TODO: include an image
 
-![K100 Mirror Mount](assets/k100.jpg)
+The hardware setup for the automatic laser alignment system includes the following components.
+- One laser source (Diode @760nm in TA100)
+<img src="assets/ta100.png" width="267" height="267">
+
+- Two 2-axis mirror mounts (K100) with installed mirrors
+
+<img src="assets/k100.jpg" width="267" height="267"><img src="assets/mirror.jpg" width="200" height="300">
+
+- One (mounted) collimator (CFC11A) and fiber
+
+<img src="assets/cfc11a.jpg" width="267" height="267"><img src="assets/collimator.jpg" width="200" height="300">
+
+- One power meter (Thorlabs PM100A)
+<img src="assets/pm100a.jpg" width="267" height="267">
+
+
 
 
 #### New Components
