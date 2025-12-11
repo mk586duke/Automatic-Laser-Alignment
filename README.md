@@ -1,4 +1,7 @@
-# Automatic-Laser-Alignment
+# Automatic Laser Alignment
+<img src="assets/setup_horizontal.jpg">
+
+
 ## Introduction
 This project implements an automated retrofitable laser alignment system designed to optimize optical coupling efficiency for optical setups in a general physics laboratory environment, such as experiments at the Duke Quantum Center.
 
@@ -107,3 +110,4 @@ $\Delta x = d \times \tan(\theta_{res}) \approx 500 \text{ mm} \times 4.26 \time
 The demonstration videos showcasing the fully working system can be found in the assets/videos folder or should be attached in the email along with this document.
 
 *Note that demo1.mp4 shows alignment with the laser has a high power setting
+
