@@ -1,11 +1,15 @@
 # Automatic-Laser-Alignment
 ## Introduction
-This project implements an automated laser alignment system designed to optimize optical coupling efficiency for experiments at the Duke Quantum Center. Traditionally, aligning laser beams into fibers or detectors is a labor-intensive manual process that can take hours and suffer from inconsistency.
+This project implements an automated retrofitable laser alignment system designed to optimize optical coupling efficiency for optical setups in a general physics laboratory environment, such as experiments at the Duke Quantum Center.
 
-Our solution automates this 4-axis alignment task using a Nelder-Mead optimization algorithm running on an Arduino Mega. By controlling motorized mirror mounts, the system achieves high-precision alignment in minutes with superior repeatability compared to manual methods.
+Traditionally, coupling laser beams into fibers is a labor-intensive and manual process that can take hours and suffer from inconsistency. Furthermore, such an alignment is not permanent, and due to factors such as human error, addition of new components, or simply mechanical drift, alignment needs to be repeated constantly for a single laser path. Considering the large number of such paths for just a single experimental setup, the combined hours of labor are significant.
+
+There exist solutions for this problem in the market, which are prepackaged motorized mirror mounts and controllers. However, these devices are expensive and are also entirely new parts that cannot be immediately applied to an existing optical path. Considering the sheer number of mirror mounts used in a system, the cost and hours necessary for setting these devices up become prohibitive.
+
+We present a solution that is both inexpensive and retrofittable. Our solution automates a 4-axis alignment task using a Nelder-Mead optimization algorithm running on an Arduino Mega. By controlling motorized mirror mounts, the system achieves high-precision alignment in minutes with superior repeatability compared to manual methods.
 
 ## System Specifications
-### Targeting accuracy:
+### Targeting accuracy goals:
 -  Lateral error ≤ ± 250 μm
 -  Angular error ≤ ± 5 mrad
 ### Performance goals:
@@ -24,27 +28,30 @@ The core logic resides in `arduino_full.ino`, which implements the control loop 
 
 ### Hardware Architecture
 #### Pre-Existing Hardware Setup
-==TODO: Minseo please check all of this== 
-The standard hardware setup for the automatic laser alignment system includes the following components.
-- One photodetector (e.g., Thorlabs PDA100A) to measure laser intensity TODO: include an image
-- Two 2-axis mirror mounts (K100)  TODO: include an image
+==TODO: Minseo please check all of this==
+The hardware setup for the automatic laser alignment system includes the following components.
+- One laser source (Diode @760nm in TA100) TODO: include an image & asking Thomas for more details
+- Two 2-axis mirror mounts (K100) with installed mirrors  TODO: include an image
+- One collimator (CFC11A)
+- One photodetector (Thorlabs PDA100A) to measure laser intensity TODO: include an image
+
 ![K100 Mirror Mount](assets/k100.jpg)
-- One 760nm laser source TODO: include an image & asking Thomas for more details
+
 
 #### New Components
 ==TODO: Minseo please fill this out== 
 The hardware setup consists of the following components:
-- Four 2048-step steppers (e.g., 28BYJ-48) for two 2-axis mirrors (controls) TODO: include an image
-- Four motor drivers (TODO: list the specific models)
-- One photodetector (e.g., Thorlabs PDA100A) to measure laser intensity TODO: include an image
-- Microcontroller (e.g., Arduino Uno) to control the stepper motors and read photodetector values TODO: include an image
+- Four 2048-step stepper motors (28BYJ-48) to control two 2-axis mirrors TODO: include an image
+- Four motor drivers (ULN2003)
+- Two motor holding and guidance assemblies (designed, 3D print)
+- Four motor-screw adaptors (designed, 3D print)
+- One microcontroller board (Arduino Mega 2560) to control the stepper motors and read photodetector values TODO: include an image
 
 #### Power and Networking
-- The photodetector transmits to the Arduino Mega via analog input pin A0, outputting an analog voltage proportional to the detected light intensity.
-- The stepper motors communicate through the 
-- The Arduino Mega coordinates the motor drivers
-- All power comes from
-==TODO: Minseo please fill this out== 
+- The photodetector outputs an analog voltage proportional to the detected light intensity. This signal is transmitted to the Arduino Mega via analog input pin A0.
+- The stepper motors communicate with the Arduino Mega through its corresponding motor driver board, which interprets and converts the control signal from the Arduino Mega. It also draws power to drive the motor.
+- All power used in the new components comes from one 5V power supply from the wall. Total operating current does not exceed 2A for a 4-motor setup.
+==TODO: Add flow chart== 
 
 ## Testing and Validation
 ### Targeting accuracy:
@@ -71,7 +78,7 @@ $$ \Delta x = d \times \tan(\theta_{res}) \approx 500 \text{ mm} \times 4.26 \ti
 - [x]  System improves output power relative to misaligned start: We consistently observed a significant increase in detected intensity after running the alignment routine from various misaligned starting positions. The determinism of the stepper motors ensured non-decreasing performance across multiple trials & we achieved consistent improvements, comparable to human tuning.
 - [x]  Manual override available at any time: System could be reset with a single button press on the Arduino Mega. During alignment, manual adjustments to the mirror mounts were possible without damaging the motors or losing system state. Additionally, all components went through a single 5V power supply, simplifying the wiring and making deactivation straightforward.
 - [x]  Typical alignment cycle completes within a few to tens of minutes: Alignment convergence consistently in 1-3 minutes.
-- [x] System is easy to install onto the preexisting hardware: All components were either extremely common (Arduino Mega, 28BYJ-48 stepper motors) or 3d-printable. The entire system was assembled on a standard optical table using common mounting hardware (posts, post holders, breadboards). Our motor mount slid onto the K100 mirror mounts without modification and we would repeatably take the system on and off the optical table without issue during testing.
+- [x]  System is easy to install onto the preexisting hardware: All components were either extremely common (Arduino Mega, 28BYJ-48 stepper motors) or 3d-printable. The entire system was assembled on a standard optical table using common mounting hardware (posts, post holders, breadboards). Our motor mount slid onto the K100 mirror mounts without modification and we would repeatably take the system on and off the optical table without issue during testing.
 
 
 ## Demonstration Videos
